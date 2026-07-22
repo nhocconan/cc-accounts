@@ -177,19 +177,26 @@ async function numberedSelect(
 /**
  * Read a single line from stdin (for prompts). Returns trimmed input.
  *
- * Prompts go to stdout, never stderr: npm/npx draw their progress spinner on
- * stderr and repeatedly erase the line (\x1b[1G\x1b[0K). A prompt written
- * there gets wiped by the next spinner frame, leaving the user staring at a
- * bare cursor with no idea input is expected — `npx cc-accounts add` looked
- * like it had hung.
+ * The question is terminated with a newline before input is read, and only a
+ * short "> " marker shares the cursor's line. npm/npx draw a progress spinner
+ * that erases the current terminal line (\x1b[1G\x1b[0K) — it wipes whatever
+ * sits on the cursor's line no matter which stream wrote it, so a trailing
+ * "Name: " prompt vanished and `npx cc-accounts add` looked hung. A completed
+ * line has already scrolled out of the spinner's reach.
  */
+export function formatPrompt(text: string, defaultValue?: string): string {
+  const suffix = defaultValue ? ` [${defaultValue}]` : "";
+  // MUST end in a newline — see the note above. A regression here makes the
+  // CLI look frozen under npx.
+  return `${text}${suffix}\n`;
+}
+
 export async function promptLine(text: string, defaultValue?: string): Promise<string> {
   requireInteractive(text);
-  const suffix = defaultValue ? ` [${defaultValue}]` : "";
-  process.stdout.write(`${text}${suffix}: `);
+  process.stdout.write(formatPrompt(text, defaultValue));
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
-    rl.question("", (ans) => {
+    rl.question("> ", (ans) => {
       rl.close();
       const v = (ans || "").trim();
       resolve(v === "" && defaultValue !== undefined ? defaultValue : v);
@@ -214,9 +221,9 @@ function requireInteractive(what: string): void {
 /** Pause until the user presses Enter, so browser flows never start unannounced. */
 export async function pressEnter(text: string): Promise<void> {
   requireInteractive(text);
-  process.stdout.write(text);
+  process.stdout.write(`${text}\n`); // newline-terminated: see promptLine
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  await new Promise<void>((resolve) => rl.question("", () => (rl.close(), resolve())));
+  await new Promise<void>((resolve) => rl.question("> ", () => (rl.close(), resolve())));
 }
 
 /** Yes/no confirmation prompt. Returns true only for explicit y/yes. */
