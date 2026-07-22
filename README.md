@@ -178,7 +178,7 @@ claude-work -p "..."   # any claude args pass through verbatim
 ~/.claude-accounts/                      ← cca's own data (CLAUDE_ACCOUNTS_DIR)
 ├── accounts.json                        ← registry: {slug, label, service, overrides}  (NO tokens)
 ├── configs/<slug>/                      ← per-account CLAUDE_CONFIG_DIR
-│   ├── .claude.json                     ←   REAL file, oauthAccount STRIPPEN  ← billing isolation
+│   ├── .claude.json                     ←   REAL file, oauthAccount STRIPPED  ← billing isolation
 │   ├── settings.json                    ←   symlink to base, OR merged file if overrides set
 │   ├── plugins/  skills/  agents/  ...  ←   symlinks to ~/.claude/*  (shared)
 │   └── (daemon*, *.lock, *.sock absent) ←   per-process state NOT shared
