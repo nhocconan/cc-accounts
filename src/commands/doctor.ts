@@ -3,9 +3,11 @@
 // usage fingerprint — the symptom of a token generated under the wrong account).
 // Reads only local data; never contacts Anthropic.
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { load, command } from "../core/registry.ts";
 import * as credstore from "../core/credstore.ts";
 import { summary, fingerprint } from "../core/usage.ts";
+import { resolveClaudeBin, resolveSelfBinary } from "../core/paths.ts";
 
 export async function doctor(): Promise<void> {
   const accounts = await load();
@@ -15,7 +17,13 @@ export async function doctor(): Promise<void> {
   }
 
   console.log("Claude accounts doctor\n");
-  console.log("  config isolation: per-account CLAUDE_CONFIG_DIR (.claude.json oauthAccount stripped)\n");
+  console.log("  config isolation: per-account CLAUDE_CONFIG_DIR (.claude.json oauthAccount stripped)");
+  // Resolved fresh on every launch — never pinned. Worth showing, because with
+  // several claude installs on PATH it answers "which one do my accounts run?".
+  const claudeBin = resolveClaudeBin();
+  const known = existsSync(claudeBin);
+  console.log(`  claude binary   : ${claudeBin}${known ? "" : "  (not found on PATH!)"}`);
+  console.log("  cca binary      : " + resolveSelfBinary() + "\n");
 
   const tokenOwner = new Map<string, string>();
   const usageOwner = new Map<string, string>();

@@ -108,6 +108,25 @@ Updating never touches your accounts: tokens stay in the Keychain (or
 `tokens.json`) and the registry stays in `~/.config/claude-accounts`. After
 updating a global install, run `cca sync` to refresh the launchers.
 
+### Updating Claude Code itself
+
+Nothing to do — every launcher always runs your current `claude`.
+
+`cca` never pins, copies, or caches a Claude version. Each `claude-<slug>`
+launch resolves `claude` from your `PATH` at that moment and execs it, so the
+instant Claude Code updates itself (or you update it), every account picks the
+new build up on its next launch. The registry stores only
+`slug`/`label`/`service`/`createdAt` — no binary path.
+
+The same holds for everything under `~/.claude` (plugins, skills, agents,
+settings, memory): each account's config dir symlinks to it, so an update there
+lands for all accounts at once. Only `.claude.json` is written per account, to
+strip `oauthAccount`.
+
+> If several `claude` binaries are on your `PATH` (npm global, `~/.local/bin`,
+> Homebrew), `cca` takes the first one — the same one plain `claude` would run.
+> `cca doctor` reports which.
+
 ## 🚀 Quick start
 
 ```bash
@@ -254,12 +273,21 @@ of a token generated while signed into the wrong account on claude.ai — both
 "accounts" silently bill the same subscription.)
 
 ```
+Claude accounts doctor
+
+  config isolation: per-account CLAUDE_CONFIG_DIR (.claude.json oauthAccount stripped)
+  claude binary   : /Users/you/.local/bin/claude
+  cca binary      : /usr/local/bin/cca
+
 ● Work  (claude-work)
     token : present (OAuth setup-token)
     usage : 5h 42% · 7d 17% used
 
 ✓ No problems detected.
 ```
+
+The `claude binary` line is resolved fresh each run, so it also tells you which
+Claude install your launchers will exec if you have more than one.
 
 ## ⚙️ Environment variables
 
