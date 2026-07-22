@@ -6,7 +6,8 @@
   "author": "Tien Le",
   "type": "module",
   "bin": {
-    "cca": "dist/cli.js"
+    "cca": "dist/cli.js",
+    "cc-accounts": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -41,7 +42,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "tsup",
-    "prepublishOnly": "tsup"
+    "prepublishOnly": "tsup",
+    "release": "bash scripts/release.sh",
+    "release:dry": "DRY=1 bash scripts/release.sh"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
