@@ -52,21 +52,21 @@ injected token → **correct billing, nothing reconfigured**.
 ### Option A — `npx` (no install, always latest)
 
 ```bash
-npx @nhocconan/claude-accounts add
+npx cc-accounts add
 ```
 
 ### Option B — global install (recommended)
 
 ```bash
-npm install -g @nhocconan/claude-accounts
+npm install -g cc-accounts
 cca add
 ```
 
 ### Option C — from source
 
 ```bash
-git clone https://github.com/nhocconan/claude-code-accounts.git
-cd claude-code-accounts
+git clone https://github.com/nhocconan/cc-accounts.git
+cd cc-accounts
 npm install
 npm run build
 npm install -g .        # makes `cca` available globally
@@ -324,7 +324,7 @@ your config from backup or moved machines, `cca sync` fixes it.
 <summary><b>How do I update <code>cca</code> itself?</b></summary>
 
 ```bash
-npm update -g @nhocconan/claude-accounts      # if installed via npm
+npm update -g cc-accounts      # if installed via npm
 # or
 git pull && npm run build && npm install -g .   # if installed from source
 ```
@@ -336,7 +336,7 @@ git pull && npm run build && npm install -g .   # if installed from source
 ```bash
 cca list                    # note your slugs
 cca remove work             # repeat for each (deletes token + launcher)
-npm uninstall -g @nhocconan/claude-accounts
+npm uninstall -g cc-accounts
 rm -rf ~/.claude-accounts   # the config dir (optional, if you want a clean slate)
 ```
 </details>
