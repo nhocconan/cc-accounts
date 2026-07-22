@@ -1,0 +1,44 @@
+{
+  "name": "claude-accounts",
+  "version": "0.1.0",
+  "description": "Run multiple Claude Code logins side by side. Like ccmirror, but for different claude accounts — claude-work, claude-personal, claude-team, with correct per-account billing isolation.",
+  "license": "MIT",
+  "author": "Tien Le",
+  "type": "module",
+  "bin": {
+    "cca": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "cli",
+    "accounts",
+    "multi-account",
+    "switcher",
+    "mirror"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
