@@ -40,7 +40,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepare": "tsup",
+    "prepublishOnly": "tsup"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
