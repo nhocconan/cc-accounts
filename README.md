@@ -45,6 +45,43 @@ history) via symlinks, but writes a fresh `.claude.json` with `oauthAccount`
 **stripped**. With no cached org, Claude falls back to the org encoded in the
 injected token → **correct billing, nothing reconfigured**.
 
+## ✨ What you get
+
+**Add an account. Everything else you already set up comes with it.**
+
+Most "account switchers" give you a second, empty Claude. This one gives you
+*your* Claude, signed in as someone else. Each account's config dir symlinks
+straight into `~/.claude`, so every account inherits, live:
+
+| Inherited | Meaning |
+|---|---|
+| `skills/`, `plugins/` | Every skill and plugin, on every account. Install once. |
+| `CLAUDE.md` | Your global instructions follow you across accounts. |
+| `settings.json` | One config to maintain — with per-account overrides when you want them ([Hybrid mode](#-per-account-settings-overrides-hybrid-mode)). |
+| MCP servers | Configured once, connected everywhere. |
+| `projects/`, `history.jsonl` | Memory and history stay whole — switching accounts doesn't fork your context. |
+| `agents/`, `tasks/`, `plans/`, … | Everything else in `~/.claude` is shared the same way — the rule is "share it all", not a curated list. |
+
+These are symlinks, not copies. Add a skill today and **all** accounts have it
+today — nothing to sync, nothing to duplicate, no drift between accounts.
+
+**Claude Code updates need no action.** Launchers resolve `claude` from your
+`PATH` at launch, so the moment Claude Code updates, every account is on the new
+build. No per-account reinstall, no version pinning, nothing to re-run.
+([details](#updating-claude-code-itself))
+
+**Billing lands on the right plan.** The one thing that *must* differ per
+account is the only thing `cca` isolates: `.claude.json`'s cached
+`oauthAccount`, which Claude otherwise pins onto every request and bills wrong.
+([how](#-why-this-exists))
+
+**Nothing to log into twice.** Tokens live in the macOS Keychain (or a 0600
+`tokens.json`), one `claude-<slug>` command per account, no re-auth on switch,
+no environment juggling.
+
+Zero runtime dependencies. Your existing setup, times N accounts, billed
+correctly.
+
 ## 📦 Install
 
 **Requires:** Node.js 18+ and the `claude` CLI on your PATH.
