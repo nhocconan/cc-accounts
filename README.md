@@ -49,18 +49,34 @@ injected token → **correct billing, nothing reconfigured**.
 
 **Requires:** Node.js 18+ and the `claude` CLI on your PATH.
 
-### Option A — `npx` (no install, always latest)
+### Option A — `npx` (recommended: nothing to install, nothing to update)
 
 ```bash
 npx cc-accounts add
 ```
 
-### Option B — global install (recommended)
+`npx` fetches the current release each time, so there is no update step and no
+stale version to chase. This is the recommended way to run one-off commands
+(`add`, `list`, `doctor`).
+
+> **If `npx` seems to run an old version**, its cache keys on the package
+> *name*, not the version. Pin it once to refresh:
+> ```bash
+> npx --yes cc-accounts@latest add
+> ```
+
+### Option B — global install (needed for the `claude-<slug>` launchers)
 
 ```bash
 npm install -g cc-accounts
 cca add
 ```
+
+The per-account launchers (`claude-work`, `claude-personal`, …) are symlinks
+that point at the `cca` binary. `npx` installs into a temporary cache that npm
+may clean up, so those launchers only keep working if `cca` is on your PATH for
+good. **Run at least one global install if you want the `claude-<slug>`
+commands.** Everything else works fine under `npx` alone.
 
 ### Option C — from source
 
@@ -79,6 +95,18 @@ npm install -g .        # makes `cca` available globally
 > ```bash
 > export PATH="$HOME/.local/bin:$PATH"
 > ```
+
+### Updating
+
+| Installed via | Update with |
+|---|---|
+| `npx` | **nothing to do** — each run fetches the current release. If it looks stale: `npx --yes cc-accounts@latest …` |
+| `npm install -g` | `npm update -g cc-accounts` (or `npm install -g cc-accounts@latest`) |
+| from source | `git pull && npm install && npm run build && npm install -g .` |
+
+Updating never touches your accounts: tokens stay in the Keychain (or
+`tokens.json`) and the registry stays in `~/.config/claude-accounts`. After
+updating a global install, run `cca sync` to refresh the launchers.
 
 ## 🚀 Quick start
 
@@ -296,6 +324,67 @@ account whose token it carries.
 </details>
 
 <details>
+<summary><b><code>/status</code> shows no account, just <code>Auth token: CLAUDE_CODE_OAUTH_TOKEN</code>. Is it broken?</b></summary>
+
+No — that is the mechanism working, and it is the single most important thing
+to understand about this tool.
+
+Claude Code's account panel renders the `oauthAccount` object cached in
+`.claude.json`. `cca` **deliberately strips that key** from each account's
+config dir, because Claude pins the cached org onto every API request and would
+otherwise bill the wrong plan no matter which token you inject. With no cached
+org, Claude falls back to the org encoded in the token itself.
+
+So a blank account panel means isolation is active. **Seeing a real account
+there would be the bug** — it would mean a stale org is still cached and your
+requests are being billed to it.
+
+To confirm which account a session is actually using, use the pieces built for
+it:
+
+```bash
+cca doctor        # per-account token + usage audit
+cca list          # all accounts with usage meters
+```
+
+plus the in-session status line (`Work · 5h 42% · 7d 17%`), which `cca` passes
+to Claude at launch via `--settings`. That is why `/status` lists
+`Setting sources: … Command line arguments`.
+</details>
+
+<details>
+<summary><b>Am I being billed per token? I see token-based pricing.</b></summary>
+
+If you added the account with `cca add`, no — you are on your subscription.
+
+Two ways to check:
+
+```bash
+# 1. Token type
+cca doctor
+#    token : present (OAuth setup-token)      ← subscription
+```
+
+An `sk-ant-oat…` token comes from `claude setup-token` and bills your Claude
+subscription. An `sk-ant-api…` key is an API key and *does* bill per token —
+`cca` rejects those at `add` time.
+
+```bash
+# 2. Rate-limit windows
+cca list
+#    claude-work   Work   5h 24% · 7d 8% used
+```
+
+Those 5-hour / 7-day windows only exist on subscription plans. Pay-per-token API
+billing has no such window — it just meters tokens. If you see them, you are on
+the subscription.
+
+Any dollar figure Claude Code displays is its **generic token-cost estimator**,
+shown regardless of how you authenticate. It is informational, not a charge
+against a card.
+</details>
+
+<details>
 <summary><b>What's the difference from <code>cc-mirror</code>?</b></summary>
 
 `cc-mirror` creates isolated Claude Code variants pointed at **different
@@ -323,10 +412,13 @@ your config from backup or moved machines, `cca sync` fixes it.
 <details>
 <summary><b>How do I update <code>cca</code> itself?</b></summary>
 
+If you run it with `npx`, there is nothing to update — every invocation pulls
+the current release. Otherwise see [Updating](#updating):
+
 ```bash
-npm update -g cc-accounts      # if installed via npm
-# or
-git pull && npm run build && npm install -g .   # if installed from source
+npm update -g cc-accounts                       # global install
+git pull && npm run build && npm install -g .   # from source
+cca sync                                        # refresh launchers afterwards
 ```
 </details>
 

@@ -4,7 +4,7 @@
 // Stale links for removed accounts are pruned. We only ever touch symlinks that
 // point at the cca binary, so we never clobber an unrelated command of the same
 // name.
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Account } from "./registry.ts";
 import { command } from "./registry.ts";
@@ -21,6 +21,30 @@ async function self(): Promise<{ dir: string; target: string } | null> {
   return { dir: wrappersDir(), target: exe };
 }
 
+/**
+ * The claude-<slug> launchers are symlinks to wherever `cca` currently lives.
+ * Under `npx` that is a temp cache npm is free to evict, and with no global
+ * install at all the resolved path may not exist yet — either way the launcher
+ * would break later, far from the command that created it. Say so now.
+ */
+export function warnIfTargetIsTransient(target: string): void {
+  const ephemeral = /[\\/]_npx[\\/]|[\\/]\.npm[\\/]_cacache[\\/]/.test(target);
+  const missing = !existsSync(target);
+  if (!ephemeral && !missing) return;
+
+  // An npx path that is also missing gets the npx wording: it is the more
+  // specific diagnosis and points at the actual fix.
+  const why = ephemeral
+    ? `the launchers point into npx's temporary cache (${target}), which npm may delete`
+    : `the launchers point at ${target}, which does not exist`;
+  process.stderr.write(
+    `\nwarning: ${why}.\n` +
+      "  The claude-<slug> commands will stop working once it goes away.\n" +
+      "  Install cca permanently so they keep resolving:\n" +
+      "    npm install -g cc-accounts && cca sync\n\n",
+  );
+}
+
 /** The basename of the self binary (e.g. "cca" or "cli.js"). */
 function selfName(target: string): string {
   return basename(target);
@@ -33,6 +57,7 @@ function selfName(target: string): string {
 export async function sync(accounts: Account[]): Promise<void> {
   const me = await self();
   if (!me) return;
+  warnIfTargetIsTransient(me.target);
   const { dir, target } = me;
 
   await fs.mkdir(dir, { recursive: true }).catch(() => {});
