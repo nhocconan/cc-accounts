@@ -20,7 +20,7 @@ import * as credstore from "../core/credstore.ts";
 import { clearUsage } from "./util.ts";
 import { resolveClaudeBin } from "../core/paths.ts";
 import { sync } from "../core/wrappers.ts";
-import { promptLine } from "../ui/select.ts";
+import { pressEnter, promptLine } from "../ui/select.ts";
 
 export interface AddOptions {
   /** Skip prompts; use these values. */
@@ -33,6 +33,13 @@ export interface AddOptions {
 }
 
 export async function add(opts: AddOptions = {}): Promise<void> {
+  const interactive = !opts.name || !opts.slug;
+  if (interactive) {
+    process.stdout.write("\nRegister a Claude account with cca\n");
+    process.stdout.write("  1. name it\n  2. sign in as that account\n  3. store its token\n\n");
+    process.stdout.write("Step 1/3 — name this account (e.g. Work, Personal)\n");
+  }
+
   let name = opts.name;
   if (!name) name = await promptLine("Account display name");
   if (!name || /[\t\n]/.test(name)) {
@@ -60,6 +67,7 @@ export async function add(opts: AddOptions = {}): Promise<void> {
   }
   validateToken(token);
 
+  if (interactive) process.stdout.write("\nStep 3/3 — storing the token\n");
   await credstore.set(service, token);
   const acct: Account = { slug, label: name, service, createdAt: new Date().toISOString() };
   if (opts.settings) {
@@ -80,13 +88,18 @@ export async function add(opts: AddOptions = {}): Promise<void> {
   const others = (await load()).filter((x) => x.slug !== slug);
   await sync([acct, ...others]);
 
-  console.log(`Stored ${name}. Launch with: claude-${slug}`);
+  console.log(`\nDone. Launch this account with: claude-${slug}`);
 }
 
 async function runSetupToken(label: string): Promise<string> {
-  process.stderr.write(`Generating a one-year OAuth token for ${label}.\n`);
-  process.stderr.write("The token is bound to whichever account is signed in on claude.ai.\n");
-  process.stderr.write("Switch to the intended account on claude.ai first.\n\n");
+  process.stdout.write(`\nStep 2/3 — sign in as "${label}"\n\n`);
+  process.stdout.write("  A browser tab will open on claude.ai to create a one-year token.\n");
+  process.stdout.write("  The token belongs to whichever account is signed in THERE, not here —\n");
+  process.stdout.write(`  so make sure claude.ai is signed in as "${label}" first (a separate\n`);
+  process.stdout.write("  browser profile or a private window keeps accounts from colliding).\n\n");
+  process.stdout.write("  Finish the sign-in in the browser; this returns on its own.\n\n");
+  await pressEnter("Press Enter to open the browser (Ctrl-C to abort)…");
+  process.stdout.write("\n");
 
   const bin = resolveClaudeBin();
   // `claude setup-token` prints the token inside a full-screen TUI and wipes the
@@ -101,16 +114,19 @@ async function runSetupToken(label: string): Promise<string> {
     if (captured) {
       const token = extractToken(readFileSync(capture, "utf8"));
       if (token) {
-        process.stderr.write(`\nCaptured token ${maskToken(token)} from setup-token.\n`);
+        process.stdout.write(`\nGot the token for this account (${maskToken(token)}).\n`);
         return token;
       }
-      process.stderr.write("\nCould not read the token off the screen — paste it below.\n");
+      process.stdout.write(
+        "\nCould not read the token off the screen.\n" +
+          "Scroll up for the line starting sk-ant-oat… and paste it here.\n\n",
+      );
     }
 
     for (let attempt = 0; attempt < 3; attempt++) {
       const token = await promptLine("Paste the generated token");
       if (token) return token;
-      process.stderr.write("Nothing pasted. Scroll up for the sk-ant-oat… line, or Ctrl-C to abort.\n");
+      process.stdout.write("Nothing pasted. Scroll up for the sk-ant-oat… line, or Ctrl-C to abort.\n");
     }
     throw new Error("no token supplied; nothing was stored");
   } finally {

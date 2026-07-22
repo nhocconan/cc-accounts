@@ -159,11 +159,11 @@ async function numberedSelect(
   prompt: string,
   header: string,
 ): Promise<{ index: number; ok: true } | { ok: false }> {
-  if (header) process.stderr.write(header + "\n");
-  labels.forEach((l, i) => process.stderr.write(`  ${i + 1}) ${l}\n`));
-  process.stderr.write(`  0) Cancel\n${prompt}`);
+  if (header) process.stdout.write(header + "\n");
+  labels.forEach((l, i) => process.stdout.write(`  ${i + 1}) ${l}\n`));
+  process.stdout.write(`  0) Cancel\n${prompt}`);
 
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question("", (ans) => {
       rl.close();
@@ -174,11 +174,20 @@ async function numberedSelect(
   });
 }
 
-/** Read a single line from stdin (for prompts). Returns trimmed input. */
+/**
+ * Read a single line from stdin (for prompts). Returns trimmed input.
+ *
+ * Prompts go to stdout, never stderr: npm/npx draw their progress spinner on
+ * stderr and repeatedly erase the line (\x1b[1G\x1b[0K). A prompt written
+ * there gets wiped by the next spinner frame, leaving the user staring at a
+ * bare cursor with no idea input is expected — `npx cc-accounts add` looked
+ * like it had hung.
+ */
 export async function promptLine(text: string, defaultValue?: string): Promise<string> {
+  requireInteractive(text);
   const suffix = defaultValue ? ` [${defaultValue}]` : "";
-  process.stderr.write(`${text}${suffix}: `);
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  process.stdout.write(`${text}${suffix}: `);
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
     rl.question("", (ans) => {
       rl.close();
@@ -186,6 +195,28 @@ export async function promptLine(text: string, defaultValue?: string): Promise<s
       resolve(v === "" && defaultValue !== undefined ? defaultValue : v);
     });
   });
+}
+
+/**
+ * Fail loudly instead of blocking forever on a stdin that will never deliver a
+ * line (piped, redirected from /dev/null, CI). Hanging on an invisible prompt
+ * is the worst possible failure mode here.
+ */
+function requireInteractive(what: string): void {
+  if (ttyIn()) return;
+  throw new Error(
+    `cannot prompt for "${what}" — stdin is not a terminal.\n` +
+      "Run this in an interactive shell, or pass the values as flags:\n" +
+      "  cca add --name <label> --slug <suffix> --token <sk-ant-oat…>",
+  );
+}
+
+/** Pause until the user presses Enter, so browser flows never start unannounced. */
+export async function pressEnter(text: string): Promise<void> {
+  requireInteractive(text);
+  process.stdout.write(text);
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  await new Promise<void>((resolve) => rl.question("", () => (rl.close(), resolve())));
 }
 
 /** Yes/no confirmation prompt. Returns true only for explicit y/yes. */
