@@ -3,6 +3,9 @@
 // credential store, and appends to the registry. Supports headless add via
 // --token or CLAUDE_CODE_OAUTH_TOKEN when a TTY isn't available.
 import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   append,
   find,
@@ -86,15 +89,150 @@ async function runSetupToken(label: string): Promise<string> {
   process.stderr.write("Switch to the intended account on claude.ai first.\n\n");
 
   const bin = resolveClaudeBin();
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(bin, ["setup-token"], { stdio: "inherit", env: scrubbedEnv() });
-    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`setup-token exited ${code}`))));
-    child.on("error", reject);
-  });
+  // `claude setup-token` prints the token inside a full-screen TUI and wipes the
+  // screen on exit, so by the time we could prompt for a paste the token is
+  // usually gone. Run it under `script`, which hands the child a real pty (the
+  // TUI and browser flow still work) while teeing every byte to a file we can
+  // scrape. Manual paste stays as the fallback.
+  const dir = mkdtempSync(join(tmpdir(), "cca-"));
+  const capture = join(dir, "setup-token.log");
+  try {
+    const captured = await spawnWithCapture(bin, capture);
+    if (captured) {
+      const token = extractToken(readFileSync(capture, "utf8"));
+      if (token) {
+        process.stderr.write(`\nCaptured token ${maskToken(token)} from setup-token.\n`);
+        return token;
+      }
+      process.stderr.write("\nCould not read the token off the screen — paste it below.\n");
+    }
 
-  const token = await promptLine("Paste the generated token");
-  if (!token) throw new Error("no token supplied; nothing was stored");
-  return token;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const token = await promptLine("Paste the generated token");
+      if (token) return token;
+      process.stderr.write("Nothing pasted. Scroll up for the sk-ant-oat… line, or Ctrl-C to abort.\n");
+    }
+    throw new Error("no token supplied; nothing was stored");
+  } finally {
+    // The capture holds a live credential; never leave it on disk.
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Run `claude setup-token` with its output teed to `logPath`. Returns true if
+ * the log is usable. Falls back to a plain inherited spawn (no capture, so
+ * false) when `script` is unavailable, e.g. a stripped-down container.
+ */
+async function spawnWithCapture(bin: string, logPath: string): Promise<boolean> {
+  const env = scrubbedEnv();
+  // BSD/macOS: script [-q] file cmd args...   util-linux: script [-q] -c "cmd" file
+  const variants: Array<{ cmd: string; args: string[]; capture: boolean }> = [
+    { cmd: "script", args: ["-q", logPath, bin, "setup-token"], capture: true },
+    { cmd: "script", args: ["-q", "-c", `${bin} setup-token`, logPath], capture: true },
+    { cmd: bin, args: ["setup-token"], capture: false },
+  ];
+
+  let lastErr: Error | undefined;
+  for (const v of variants) {
+    try {
+      const code = await new Promise<number>((resolve, reject) => {
+        const child = spawn(v.cmd, v.args, { stdio: "inherit", env });
+        child.on("exit", (c) => resolve(c ?? 1));
+        child.on("error", reject);
+      });
+      if (code === 0) return v.capture;
+      lastErr = new Error(`setup-token exited ${code}`);
+      // A non-zero exit from `script` may mean the wrong flavor; try the next.
+      if (!v.capture) throw lastErr;
+    } catch (err) {
+      lastErr = err as Error;
+    }
+  }
+  throw lastErr ?? new Error("setup-token failed");
+}
+
+/** Drop ANSI/OSC escape sequences so wrapped TUI output can be read as text. */
+export function stripAnsi(s: string): string {
+  return s
+    .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, "") // OSC (hyperlinks)
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "") // CSI
+    .replace(/\x1b[()][A-Za-z0-9]/g, "")
+    .replace(/\x1b./g, "");
+}
+
+/** A run of text sharing one active SGR foreground color ("" = default). */
+interface ColorRun {
+  color: string;
+  text: string;
+}
+
+/**
+ * Split raw terminal bytes into runs of text tagged with the active SGR color,
+ * dropping every other escape sequence (cursor motion, erases, OSC links).
+ */
+function colorRuns(raw: string): ColorRun[] {
+  const runs: ColorRun[] = [];
+  const re = /\x1b\][\s\S]*?(?:\x07|\x1b\\)|\x1b\[([0-9;?]*)([ -/]*[@-~])|\x1b[()][A-Za-z0-9]|\x1b./g;
+  let color = "";
+  let buf = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    buf += raw.slice(last, m.index);
+    last = re.lastIndex;
+    if (m[2] !== "m") continue; // not SGR — cursor motion etc. stays inside the run
+    runs.push({ color, text: buf });
+    buf = "";
+    const p = m[1] ?? "";
+    if (p === "" || p === "0" || p === "39") color = ""; // reset / default fg
+    else if (p.startsWith("38;") || /^(3[0-7]|9[0-7])$/.test(p)) color = p;
+  }
+  runs.push({ color, text: buf + raw.slice(last) });
+  return runs;
+}
+
+/**
+ * Pull an sk-ant-oat token out of raw terminal output.
+ *
+ * The TUI hard-wraps the token at terminal width, so it arrives as several
+ * chunks separated by cursor moves and padding whitespace. Length-based
+ * rejoining swallows the "Store this token securely." line that follows, so
+ * key off color instead: the token is printed in one highlight color and the
+ * surrounding prose is not. Collect adjacent runs sharing the token's color,
+ * skipping whitespace-only runs, and stop at the first differently-colored
+ * text. Falls back to the single whitespace-delimited chunk for uncolored
+ * output.
+ */
+export function extractToken(raw: string): string | undefined {
+  const runs = colorRuns(raw);
+  const at = runs.findIndex((r) => r.text.includes("sk-ant-oat"));
+  if (at < 0) return undefined;
+
+  const first = runs[at]!;
+  const color = first.color;
+  let token = first.text.slice(first.text.indexOf("sk-ant-oat"));
+
+  if (color !== "") {
+    // Colored token: a same-color continuation is a wrap, anything else ends it.
+    if (!/\s/.test(token.trim())) {
+      for (let i = at + 1; i < runs.length; i++) {
+        const run = runs[i]!;
+        if (run.text.trim() === "") continue; // padding between wrapped lines
+        if (run.color !== color) break;
+        token += run.text;
+      }
+    }
+  }
+
+  token = token.split(/\s+/).filter(Boolean).join("");
+  token = token.replace(/[^A-Za-z0-9_-]+$/, "");
+  const m = /^sk-ant-oat[A-Za-z0-9_-]{20,}/.exec(token);
+  return m ? m[0] : undefined;
+}
+
+function maskToken(t: string): string {
+  return t.length > 18 ? `${t.slice(0, 14)}…${t.slice(-4)}` : "…";
 }
 
 export function validateToken(token: string): void {
