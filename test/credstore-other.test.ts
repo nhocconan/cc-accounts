@@ -27,12 +27,14 @@ describe("file credstore (credstore-other)", () => {
     expect(await cs.get("svc-b")).toBe("sk-ant-oat-BBB");
   });
 
-  it("writes a 0600 file", async () => {
+  it("writes a 0600 file", async ({ skip }) => {
+    // Windows NTFS ignores Unix permission bits — fs.writeFile({mode:0o600}) is a
+    // no-op there and stat().mode always reads 0o666. Only assert on Unix.
+    if (process.platform === "win32") skip();
     const cs = await import("../src/core/credstore-other.ts");
     await cs.set("svc", "tok");
     const path = join(DIR, "tokens.json");
     const st = await fs.stat(path);
-    // Node doesn't expose sticky bits reliably across platforms; check the low 3 octets.
     const mode = st.mode & 0o777;
     expect(mode).toBe(0o600);
   });
