@@ -1,6 +1,6 @@
 {
   "name": "cc-accounts",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Run multiple Claude Code logins side by side. Like ccmirror, but for different claude accounts — claude-work, claude-personal, claude-team, with correct per-account billing isolation.",
   "license": "MIT",
   "author": "Tien Le",
