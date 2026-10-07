@@ -17,8 +17,20 @@ if (process.argv.includes("--self-test")) {
   }
 }
 let failed = false;
+function forcesScrub(source) {
+  return /(?:\.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB|\[\s*["']CLAUDE_CODE_SUBPROCESS_ENV_SCRUB["']\s*\])\s*=/.test(source);
+}
+if (process.argv.includes("--self-test")) {
+  if (!forcesScrub('env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";') || forcesScrub('const value = env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB;')) {
+    throw new Error("Subprocess isolation audit self-test failed");
+  }
+}
 for (const [file, name] of sites) {
   const source = readFileSync(fileURLToPath(new URL(`../../${file}`, import.meta.url)), "utf8");
+  if (forcesScrub(source)) {
+    console.error(`${file}: violates AGENTS.md §2; preserve the user's subprocess scrub mode instead of assigning it.`);
+    failed = true;
+  }
   if (guarded(source, name)) continue;
   console.error(`${file}: ${name} violates AGENTS.md §1; call sanitizeClaudePath(env) immediately before returning the Claude environment.`);
   failed = true;

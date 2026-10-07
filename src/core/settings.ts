@@ -66,7 +66,7 @@ export async function writeMergedSettings(acct: Account, acctDir: string): Promi
   const overrides = acct.overrides?.settings ?? {};
   const merged = deepMerge<Record<string, unknown>>(base, overrides);
   if (merged.env && typeof merged.env === "object" && !Array.isArray(merged.env)) {
-    const blocked = new Set(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_ACCOUNTS_SLUG", "CLAUDE_ACCOUNTS_LABEL", "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"]);
+    const blocked = new Set(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_ACCOUNTS_SLUG", "CLAUDE_ACCOUNTS_LABEL"]);
     merged.env = Object.fromEntries(Object.entries(merged.env).filter(([key]) => !blocked.has(key.toUpperCase())));
   }
   // Always replace managed settings, including when overrides were cleared.

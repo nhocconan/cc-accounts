@@ -12,6 +12,16 @@ beforeEach(async () => { root = await fs.mkdtemp(join(tmpdir(), "cca-runtime-"))
 afterEach(async () => { process.env = { ...original }; await fs.rm(root, { recursive: true, force: true }); });
 const acct = { slug: "work", label: "Work", service: serviceFor("work"), createdAt: "2026-01-01" };
 describe("settings boundaries", () => {
+  it("preserves explicitly configured subprocess isolation and sandbox settings", async () => {
+    const base = process.env.CLAUDE_CONFIG_DIR!;
+    await fs.mkdir(base, { recursive: true });
+    const settings = { sandbox: { enabled: false }, env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0" } };
+    await fs.writeFile(join(base, "settings.json"), JSON.stringify(settings));
+    await writeMergedSettings(acct, join(root, "account"));
+    expect(JSON.parse(await fs.readFile(join(root, "account", "settings.json"), "utf8"))).toEqual(settings);
+    await writeMergedSettings({ ...acct, overrides: { settings: { env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1" } } } }, join(root, "account"));
+    expect(JSON.parse(await fs.readFile(join(root, "account", "settings.json"), "utf8"))).toEqual({ ...settings, env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1" } });
+  });
   it("removes provider/auth overrides without modifying the base", async () => {
     const base = process.env.CLAUDE_CONFIG_DIR!;
     await fs.mkdir(base, { recursive: true });

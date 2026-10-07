@@ -111,7 +111,6 @@ export function buildEnv(token: string, acct: Account, configDir: string): NodeJ
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_ACCOUNTS_SLUG",
     "CLAUDE_ACCOUNTS_LABEL",
-    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
     ...SCRUB_VARS,
   ]);
   skip.add("CLAUDE_CONFIG_DIR");
@@ -121,7 +120,8 @@ export function buildEnv(token: string, acct: Account, configDir: string): NodeJ
     if (skip.has(process.platform === "win32" ? k.toUpperCase() : k)) continue;
     env[k] = v;
   }
-  env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";
+  // Subprocess scrub mode also enforces a separate Linux sandbox and permission
+  // mode. Preserve the user's choice; an account switch must not enable it.
   env.CLAUDE_CODE_OAUTH_TOKEN = token;
   env.CLAUDE_ACCOUNTS_SLUG = acct.slug;
   env.CLAUDE_ACCOUNTS_LABEL = acct.label;

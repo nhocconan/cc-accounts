@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Stop forcing `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, which enables additional
+  Linux isolation even with sandbox settings disabled, blocks lockfile/worktree
+  writes and Docker access, and overrides permission modes. Preserve explicit
+  user choices in the environment and settings.
 - Filter nonexistent npm `node_modules/.bin` paths from session and setup-token
   environments so npx launchers do not break Claude's Bash sandbox under
   unwritable ancestor directories. Preserve existing tools and sandbox settings.

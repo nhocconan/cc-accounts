@@ -15,6 +15,10 @@ const account = { slug: "work", label: "Work", service: "fixture" } as Account;
 mocks.find.mockImplementation(async () => account);
 afterEach(() => { mocks.find.mockImplementation(async () => account); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 describe("launcher isolation and failures", () => {
+  it.each([undefined, "0", "1"])("preserves the user's subprocess scrub choice: %s", value => {
+    vi.stubEnv("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB", value);
+    expect(buildEnv("fixture-token", account, "isolated-home").CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe(value);
+  });
   it("scrubs competing authentication and sets the isolated config", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "wrong-account");
     vi.stubEnv("CLAUDE_CONFIG_DIR", "wrong-home");

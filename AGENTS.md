@@ -71,6 +71,13 @@ If any step fails, fix it before pushing. Do not push known-broken code.
    `sanitizeClaudePath(env)` before returning. Preserve existing project bins,
    unrelated PATH entries, the working directory, and sandbox settings.
 
+2. **Never force Claude's subprocess scrub mode during an account switch.**
+   `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` also enables Linux isolation and restricts
+   permission modes independently of `sandbox.enabled`. Preserve the user's
+   explicit environment/settings value; do not inject a default or strip it
+   from merged settings. Account authentication isolation is a separate concern.
+
 | Concern | Rule | Audit | Gate |
 |---|---|---|---|
 | Claude inherits nonexistent npm bins | §1 | `scripts/audit/claude-env.mjs` + `test/claude-env.test.ts` | `npm run verify`, CI |
+| Forced subprocess isolation | §2 | `scripts/audit/claude-env.mjs` + launcher/settings regressions | `npm run verify`, CI |

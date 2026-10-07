@@ -382,6 +382,21 @@ test/                     # behavior and integration tests
 ## ❓ FAQ
 
 <details>
+<summary><b>Sandbox is disabled, but Docker, lockfiles or git worktrees are still blocked</b></summary>
+
+Older launchers forced `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`. In recent Claude
+versions this enables additional Linux subprocess isolation and restricts
+permission modes independently of `sandbox.enabled`. Current launchers preserve
+your explicit choice instead of enabling this mode. The account OAuth token is
+still injected, and competing authentication variables are removed.
+
+Update to a version containing this fix, run `cca sync`, and restart Claude.
+An already running session keeps its original environment. If you explicitly
+enabled subprocess scrub mode in your shell or settings, that choice still
+applies. Normal Claude permission rules and project instructions still apply.
+</details>
+
+<details>
 <summary><b>Plain <code>claude</code> works, but an npx account launcher fails with a bwrap node_modules error</b></summary>
 
 `npx` adds ancestor `node_modules/.bin` directories to `PATH`, including ones
