@@ -61,10 +61,7 @@ NEW="$(node -p "require('./package.json').version")"
 # --- publish -----------------------------------------------------------------
 say "publishing cc-accounts@$NEW"
 if ! npm publish --access public; then
-  say "publish failed — rolling back the local bump so you can retry cleanly"
-  git tag -d "v$NEW" >/dev/null 2>&1 || true
-  git reset --hard HEAD~1
-  die "publish failed. Tree restored to v$OLD."
+  die "publish failed. Release commit/tag v$NEW retained for inspection and retry; verify registry state before publishing again."
 fi
 
 say "pushing commit + tag"

@@ -2,6 +2,8 @@
 // the status JSON Claude prints on stdin, renders the active account name (so a
 // session always shows which login it uses) plus live usage, and caches the
 // rate_limits for `list`/`doctor`. Pure Node — no shell dependency.
+import { randomUUID } from "node:crypto";
+import { sanitizeRateLimits } from "../core/usage.ts";
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
 import { usageDir } from "../core/paths.ts";
@@ -32,7 +34,11 @@ export async function run(): Promise<void> {
   const raw = await readStdin();
   let payload: Payload = {};
   try {
-    payload = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const rateLimits = sanitizeRateLimits(parsed.rate_limits);
+      if (rateLimits) payload = { rate_limits: rateLimits };
+    }
   } catch {
     /* Claude occasionally emits partial JSON; render label only */
   }
@@ -65,13 +71,16 @@ async function cacheUsage(slug: string, data: string): Promise<void> {
   } catch {
     return;
   }
-  const rl = (parsed as { rate_limits?: unknown }).rate_limits;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+  const rl = sanitizeRateLimits((parsed as { rate_limits?: unknown }).rate_limits);
   if (!rl) return;
 
   const dir = usageDir();
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const body = JSON.stringify({ captured_at: Date.now(), rate_limits: rl });
-  const tmp = join(dir, `${slug}.json.tmp`);
-  await fs.writeFile(tmp, body, { mode: 0o600 });
-  await fs.rename(tmp, join(dir, `${slug}.json`));
+  const tmp = join(dir, `${slug}.${randomUUID()}.tmp`);
+  try {
+    await fs.writeFile(tmp, body, { mode: 0o600, flag: "wx" });
+    await fs.rename(tmp, join(dir, `${slug}.json`));
+  } finally { await fs.unlink(tmp).catch(() => {}); }
 }

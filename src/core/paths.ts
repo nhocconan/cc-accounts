@@ -8,8 +8,8 @@
 //   usage/<slug>.json    cached rate_limits captured by the statusline
 //   tokens.json          fallback credstore on Linux/Windows (0600); mac uses Keychain
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { existsSync, readFileSync, symlinkSync } from "node:fs";
+import { delimiter, join, resolve } from "node:path";
+import { accessSync, constants, realpathSync, statSync } from "node:fs";
 
 function home(): string {
   return homedir() || process.env.HOME || "/tmp";
@@ -71,11 +71,11 @@ export function defaultBinDir(): string {
 
   const preferred = join(home(), ".local", "bin");
   const path = process.env.PATH || "";
-  const dirs = path.split(":");
+  const dirs = path.split(delimiter);
 
   if (dirs.includes(preferred)) {
     try {
-      if (existsSync(preferred)) return preferred;
+      if (statSync(preferred).isDirectory()) { accessSync(preferred, constants.W_OK); return preferred; }
     } catch {
       /* fall through */
     }
@@ -84,9 +84,12 @@ export function defaultBinDir(): string {
   for (const dir of dirs) {
     if (!dir) continue;
     // Avoid system dirs we have no business writing to.
-    if (/\/(sbin|usr\/|bin|System)/.test(dir)) continue;
+    if (process.platform === "win32"
+      ? dir.toLowerCase().startsWith((process.env.SystemRoot || "C:\\Windows").toLowerCase())
+      : /^\/(?:bin|sbin|usr(?:\/|$)|System(?:\/|$))/.test(dir)) continue;
     try {
-      if (existsSync(dir)) return dir;
+      if (/[\\/](?:_npx|node_modules[\\/]\.bin)(?:[\\/]|$)/.test(dir)) continue;
+      if (statSync(dir).isDirectory()) { accessSync(dir, constants.W_OK); return dir; }
     } catch {
       /* try next */
     }
@@ -100,45 +103,41 @@ export function defaultBinDir(): string {
  * first, falling back to `which cca`-style PATH lookup.
  */
 export function resolveSelfBinary(): string {
-  // When invoked via the bin shim, argv[1] is the absolute path to dist/cli.js.
-  const arg1 = process.argv[1];
-  if (arg1 && (arg1.endsWith("cli.js") || arg1.endsWith("cli"))) {
-    return arg1;
+  const arg = process.argv[1];
+  if (arg) {
+    try { return realpathSync(resolve(arg)); } catch { return resolve(arg); }
   }
-  // Try to resolve via PATH.
-  for (const dir of (process.env.PATH || "").split(":")) {
-    if (!dir) continue;
-    const candidate = join(dir, "cca");
-    try {
-      if (existsSync(candidate)) return candidate;
-    } catch {
-      /* next */
-    }
-  }
-  // Last resort: assume the global install location alongside node.
-  try {
-    return process.execPath.replace(/\/bin\/node$/, "/bin/cca");
-  } catch {
-    return "cca";
-  }
+  return "cca";
 }
 
-/**
- * Locate the real `claude` executable. Tries PATH, then ~/.local/bin/claude,
- * then the npm global bin.
- */
+function executable(candidate: string): boolean {
+  try {
+    if (!statSync(candidate).isFile()) return false;
+    accessSync(candidate, process.platform === "win32" ? constants.F_OK : constants.X_OK);
+    return true;
+  } catch { return false; }
+}
+
+/** Locate Claude, rejecting a manager alias that would recursively relaunch. */
 export function resolveClaudeBin(): string {
-  const path = process.env.PATH || "";
-  for (const dir of path.split(":")) {
-    if (!dir) continue;
-    const candidate = join(dir, "claude");
-    try {
-      if (existsSync(candidate)) return candidate;
-    } catch {
-      /* next */
+  const self = resolveSelfBinary();
+  const valid = (candidate: string): boolean => {
+    if (!executable(candidate)) return false;
+    try { return realpathSync(candidate) !== self; } catch { return false; }
+  };
+  const explicit = process.env.CLAUDE_ACCOUNTS_CLAUDE_BIN;
+  if (explicit) {
+    if (!valid(explicit)) throw new Error(`Claude executable is unavailable or points at cca: ${explicit}`);
+    return explicit;
+  }
+  const names = process.platform === "win32" ? ["claude.exe", "claude.cmd", "claude"] : ["claude"];
+  for (const dir of (process.env.PATH || "").split(delimiter).filter(Boolean)) {
+    for (const name of names) {
+      const candidate = join(dir, name);
+      if (valid(candidate)) return candidate;
     }
   }
   const fallback = join(home(), ".local", "bin", "claude");
-  if (existsSync(fallback)) return fallback;
-  return "claude";
+  if (valid(fallback)) return fallback;
+  throw new Error("Claude executable not found. Install Claude Code or set CLAUDE_ACCOUNTS_CLAUDE_BIN.");
 }

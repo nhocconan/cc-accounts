@@ -1,6 +1,6 @@
 {
   "name": "cc-accounts",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Run multiple Claude Code logins side by side. Like ccmirror, but for different claude accounts — claude-work, claude-personal, claude-team, with correct per-account billing isolation.",
   "license": "MIT",
   "author": "Tien Le",
@@ -12,7 +12,9 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md",
+    "docs/PARITY-AUDIT.md"
   ],
   "keywords": [
     "claude",
@@ -42,15 +44,27 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "tsup",
-    "prepublishOnly": "tsup",
+    "prepublishOnly": "npm run verify",
     "release": "bash scripts/release.sh",
-    "release:dry": "DRY=1 bash scripts/release.sh"
+    "release:dry": "DRY=1 bash scripts/release.sh",
+    "verify": "npm run typecheck && npm test && npm run build && node dist/cli.js --version",
+    "version": "npm run verify && npm pack --dry-run"
   },
   "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.10.0",
+    "@types/proper-lockfile": "^4.1.4",
     "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "cross-spawn": "^7.0.6",
+    "proper-lockfile": "^4.1.2"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "vite": "6.4.3"
   }
 }

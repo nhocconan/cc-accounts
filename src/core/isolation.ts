@@ -13,10 +13,12 @@
 //
 // We rebuild this dir on every launch so it always reflects current base
 // settings and per-account overrides. The symlink refresh is cheap.
+import { randomUUID } from "node:crypto";
+import { withFileLock } from "./lock.ts";
 import { promises as fs, type Dirent } from "node:fs";
 import { dirname, join } from "node:path";
 import { claudeHome, claudeJson, configDirFor } from "./paths.ts";
-import type { Account } from "./registry.ts";
+import { validSlug, type Account } from "./registry.ts";
 import { writeMergedSettings } from "./settings.ts";
 
 /**
@@ -24,21 +26,33 @@ import { writeMergedSettings } from "./settings.ts";
  * Rebuilds are idempotent and fast — symlinks are recreated, stale ones pruned.
  */
 export async function build(acct: Account): Promise<string> {
+  if (!validSlug(acct.slug)) throw new Error("invalid account slug");
+  return withFileLock(configDirFor(acct.slug) + ".build", () => buildUnlocked(acct));
+}
+
+async function buildUnlocked(acct: Account): Promise<string> {
   const base = claudeHome();
   const acctDir = configDirFor(acct.slug);
 
   await fs.mkdir(acctDir, { recursive: true, mode: 0o700 });
-
-  // If the account has settings overrides, settings.json must be a real merged
-  // file (not a symlink to base), so don't symlink it.
-  const hasOverrides = Object.keys(acct.overrides?.settings ?? {}).length > 0;
-  const extraSkip = hasOverrides ? new Set(["settings.json"]) : new Set<string>();
-
-  await mirror(base, acctDir, extraSkip);
-  await writeStripped(claudeJson(), join(acctDir, ".claude.json"));
-  if (hasOverrides) {
-    await writeMergedSettings(acct, acctDir);
+  // A redirected account home must never write stripped identity/settings into
+  // the user's base home or another account.
+  if ((await fs.lstat(acctDir)).isSymbolicLink()) {
+    throw new Error("account config directory must not be a symlink");
   }
+  const baseReal = await fs.realpath(base).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === "ENOENT") return undefined;
+    throw err;
+  });
+  if (baseReal === await fs.realpath(acctDir)) {
+    throw new Error("account config directory must differ from the base Claude directory");
+  }
+
+  // Settings are always regenerated as a real account file so clearing an
+  // override cannot leave a stale merged value behind.
+  await mirror(base, acctDir, new Set(["settings.json"]));
+  await writeStripped(claudeJson(), join(acctDir, ".claude.json"));
+  await writeMergedSettings(acct, acctDir);
 
   return acctDir;
 }
@@ -57,9 +71,9 @@ async function mirror(base: string, acctDir: string, extraSkip: Set<string>): Pr
   let entries: Dirent[] = [];
   try {
     entries = await fs.readdir(base, { withFileTypes: true });
-  } catch {
-    // Base ~/.claude may not exist yet (never logged in directly). Nothing to share.
-    return;
+  } catch (err) {
+    // An absent base is normal; unreadable state must not silently disappear.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
 
   for (const entry of entries) {
@@ -86,7 +100,7 @@ async function mirror(base: string, acctDir: string, extraSkip: Set<string>): Pr
     }
 
     try {
-      await fs.symlink(target, link);
+      await fs.symlink(target, link, process.platform === "win32" && entry.isDirectory() ? "junction" : undefined);
     } catch {
       /* best-effort: a failed symlink just means that bit isn't shared */
     }
@@ -116,6 +130,10 @@ async function mirror(base: string, acctDir: string, extraSkip: Set<string>): Pr
 
 /** Runtime files that must NOT be shared between accounts (per-process state). */
 export function isolatedName(name: string): boolean {
+  // Credentials and cached account metadata must never be shared, including
+  // backups and temporary copies that can retain the base account identity.
+  if (/^(?:\.credentials\.json|\.claude\.json)(?:[.-].+)?$/.test(name)) return true;
+  if (name === "tmp" || name === ".tmp" || name.endsWith(".tmp")) return true;
   if (name === "daemon" || name.startsWith("daemon.")) return true;
   if (name.endsWith(".lock") || name.endsWith(".sock")) return true;
   return false;
@@ -140,6 +158,9 @@ export async function writeStripped(src: string, dst: string): Promise<void> {
   }
 
   const top = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
+  if (!top || typeof top !== "object" || Array.isArray(top)) {
+    throw new Error(`${src} must contain a JSON object`);
+  }
   delete top.oauthAccount;
 
   await safeWrite(dst, JSON.stringify(top, null, 2) + "\n");
@@ -148,7 +169,11 @@ export async function writeStripped(src: string, dst: string): Promise<void> {
 /** Atomic 0600 write. */
 async function safeWrite(path: string, content: string): Promise<void> {
   await fs.mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const tmp = path + ".tmp";
-  await fs.writeFile(tmp, content, { mode: 0o600 });
-  await fs.rename(tmp, path);
+  const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(tmp, content, { mode: 0o600, flag: "wx" });
+    await fs.rename(tmp, path);
+  } finally {
+    await fs.rm(tmp, { force: true });
+  }
 }

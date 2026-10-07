@@ -81,8 +81,8 @@ describe("build", () => {
     expect(json.oauthAccount).toBeUndefined();
     expect(json.keep).toBe(0.15);
 
-    // settings.json and plugins/p.txt are shared via symlink.
-    expect(await fs.readFile(join(dir, "settings.json"), "utf8")).toBe(JSON.stringify({ model: "opus" }));
+    // settings.json mirrors base values; plugins/p.txt is shared via symlink.
+    expect(JSON.parse(await fs.readFile(join(dir, "settings.json"), "utf8"))).toEqual({ model: "opus" });
     expect(await fs.readFile(join(dir, "plugins", "p.txt"), "utf8")).toBe("plugin");
 
     // daemon.lock is NOT shared.

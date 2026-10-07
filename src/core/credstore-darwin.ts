@@ -22,12 +22,13 @@ export async function get(service: string): Promise<string> {
     const code = (err as { code?: number }).code;
     // 44 == errSecItemNotFound. Absent token is normal, not an error.
     if (code === 44) return "";
-    throw err;
+    throw keychainError("read", err);
   }
 }
 
 /** Store or replace (-U) a token under the service name. */
 export async function set(service: string, token: string): Promise<void> {
+  try {
   await execFileP("/usr/bin/security", [
     "add-generic-password",
     "-U",
@@ -40,6 +41,9 @@ export async function set(service: string, token: string): Promise<void> {
     "-w",
     token,
   ]);
+  } catch (err) {
+    throw keychainError("write", err);
+  }
 }
 
 /** Remove a token. Missing item is not an error. */
@@ -56,6 +60,13 @@ export async function del(service: string): Promise<void> {
     // Missing item is fine.
     const code = (err as { code?: number }).code;
     if (code === 44) return;
-    throw err;
+    throw keychainError("delete", err);
   }
+}
+
+/** execFile errors include argv/stdout; argv can contain the secret token. */
+function keychainError(operation: string, error: unknown): Error {
+  const code = (error as { code?: unknown }).code;
+  const status = typeof code === "number" ? ` (exit ${code})` : "";
+  return new Error(`could not ${operation} token in macOS Keychain${status}`);
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deepMerge } from "../src/core/settings.ts";
+import { deepMerge, statuslineCommand } from "../src/core/settings.ts";
 
 describe("deepMerge", () => {
   it("merges nested objects", () => {
@@ -32,4 +32,8 @@ describe("deepMerge", () => {
     expect(a).toEqual({ x: { y: 1 } });
     expect(b).toEqual({ x: { z: 2 } });
   });
+});
+
+it("quotes Windows statusline paths for cmd", () => {
+  expect(statuslineCommand("C:\\Program Files\\cca\\cli.js", true)).toContain('"C:\\Program Files\\cca\\cli.js" statusline');
 });

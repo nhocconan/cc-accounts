@@ -100,6 +100,9 @@ async function arrowSelect(
   return new Promise((resolve) => {
     const out = process.stdout;
     let selected = 0;
+    let rendered = false;
+    const wasRaw = process.stdin.isRaw;
+    const lineCount = (header ? 1 : 0) + labels.length + 1;
 
     const render = () => {
       const lines: string[] = [];
@@ -110,19 +113,25 @@ async function arrowSelect(
         lines.push(`${marker}${text}`);
       });
       lines.push(`\x1b[2m(↑/↓ select, Enter confirm, Esc cancel)\x1b[0m ${prompt}`);
-      out.write(`\x1b[2K\r\x1b[1A\x1b[2K`.repeat(0)); // no-op safety
+      if (rendered) out.write(`\x1b[${lineCount}A`);
       // Clear from cursor down, then print.
       out.write("\x1b[J");
       out.write(lines.join("\n") + "\n");
+      rendered = true;
     };
 
     const cleanup = () => {
-      process.stdin.setRawMode(false);
+      process.stdin.setRawMode(wasRaw === true);
       process.stdin.pause();
       process.stdin.removeListener("data", onData);
+      process.stdin.removeListener("end", onEnd);
       // Erase the menu we drew.
-      const lineCount = (header ? 1 : 0) + labels.length + 1;
-      out.write(`\x1b[${lineCount}A\x1b[J`);
+      if (rendered) out.write(`\x1b[${lineCount}A\x1b[J`);
+    };
+
+    const onEnd = () => {
+      cleanup();
+      resolve({ ok: false });
     };
 
     const onData = (buf: Buffer) => {
@@ -150,6 +159,7 @@ async function arrowSelect(
     process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.on("data", onData);
+    process.stdin.once("end", onEnd);
     render();
   });
 }
@@ -165,10 +175,14 @@ async function numberedSelect(
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
+    const onClose = () => resolve({ ok: false });
+    rl.once("close", onClose);
     rl.question("", (ans) => {
+      rl.off("close", onClose);
       rl.close();
-      const n = parseInt((ans || "").trim(), 10);
-      if (Number.isNaN(n) || n < 1 || n > labels.length) return resolve({ ok: false });
+      const answer = (ans || "").trim();
+      const n = /^\d+$/.test(answer) ? Number(answer) : NaN;
+      if (!Number.isSafeInteger(n) || n < 1 || n > labels.length) return resolve({ ok: false });
       return resolve({ index: n - 1, ok: true });
     });
   });
@@ -195,8 +209,11 @@ export async function promptLine(text: string, defaultValue?: string): Promise<s
   requireInteractive(text);
   process.stdout.write(formatPrompt(text, defaultValue));
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    const onClose = () => reject(new Error("input closed before an answer was supplied"));
+    rl.once("close", onClose);
     rl.question("> ", (ans) => {
+      rl.off("close", onClose);
       rl.close();
       const v = (ans || "").trim();
       resolve(v === "" && defaultValue !== undefined ? defaultValue : v);
@@ -223,7 +240,15 @@ export async function pressEnter(text: string): Promise<void> {
   requireInteractive(text);
   process.stdout.write(`${text}\n`); // newline-terminated: see promptLine
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  await new Promise<void>((resolve) => rl.question("> ", () => (rl.close(), resolve())));
+  await new Promise<void>((resolve, reject) => {
+    const onClose = () => reject(new Error("input closed before confirmation"));
+    rl.once("close", onClose);
+    rl.question("> ", () => {
+      rl.off("close", onClose);
+      rl.close();
+      resolve();
+    });
+  });
 }
 
 /** Yes/no confirmation prompt. Returns true only for explicit y/yes. */

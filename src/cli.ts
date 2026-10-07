@@ -6,6 +6,7 @@
 // (e.g. /usr/local/bin/claude-work → this binary), it launches that account
 // directly, passing through all args to claude.
 import { basename } from "node:path";
+import { VERSION } from "./version.ts";
 import * as tui from "./tui.ts";
 import * as cmdList from "./commands/list.ts";
 import * as cmdAdd from "./commands/add.ts";
@@ -36,6 +37,11 @@ async function main(): Promise<number> {
 
   // --- Normal cca command dispatch. ---
   const [sub, ...rest] = args;
+  if (sub === "launch" || sub === "run") {
+    const [slug, ...claudeArgs] = rest;
+    if (!slug) throw new Error("usage: cca launch <slug> [claude args...]");
+    return cmdLaunch.launch(slug, claudeArgs[0] === "--" ? claudeArgs.slice(1) : claudeArgs);
+  }
   const flags = parseFlags(rest);
 
   switch (sub) {
@@ -46,18 +52,11 @@ async function main(): Promise<number> {
       await cmdStatusline.run();
       return 0;
     case "doctor":
-      await cmdDoctor.doctor();
-      return 0;
+      return cmdDoctor.doctor();
     case "list":
     case "ls":
       await cmdList.list();
       return 0;
-    case "launch":
-    case "run": {
-      const slug = flags.positionals[0];
-      if (!slug) throw new Error("usage: cca launch <slug> [claude args...]");
-      return cmdLaunch.launch(slug, [...flags.positionals.slice(1), ...flags.unknown]);
-    }
     case "add": {
       const addOpts: cmdAdd.AddOptions = {};
       if (flags.values["name"]) addOpts.name = flags.values["name"];
@@ -152,7 +151,6 @@ function parseFlags(args: string[]): ParsedFlags {
   return { positionals, values, unknown };
 }
 
-const VERSION = "0.1.0";
 
 function printHelp(): void {
   console.log(`cca — Claude Code multi-account switcher v${VERSION}

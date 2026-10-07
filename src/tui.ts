@@ -2,7 +2,7 @@
 // Remove — or Add a new one. Loops until the user launches a session or cancels.
 import { load, command, type Account } from "./core/registry.ts";
 import * as credstore from "./core/credstore.ts";
-import { sync } from "./core/wrappers.ts";
+import { syncCurrent } from "./core/wrappers.ts";
 import { summary } from "./core/usage.ts";
 import { launch as doLaunch } from "./core/launcher.ts";
 import * as manageAdd from "./commands/add.ts";
@@ -18,7 +18,7 @@ function report(err: unknown): void {
 export async function run(): Promise<number> {
   for (;;) {
     const accounts = await load();
-    await sync(accounts);
+    await syncCurrent();
 
     const labels: string[] = ["+ Add account"];
     for (const a of accounts) {

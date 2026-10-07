@@ -1,13 +1,15 @@
 // Launches Claude Code authenticated as a chosen account and isolated to its
 // own config dir. Spawns claude as a child with inherited stdio and relays
 // signals so Ctrl-C, etc. behave correctly.
-import { spawn } from "node:child_process";
+import spawn from "cross-spawn";
 import { resolveClaudeBin } from "./paths.ts";
 import * as credstore from "./credstore.ts";
 import { build } from "./isolation.ts";
 import { writeStatusSettings } from "./settings.ts";
 import { fiveHourNearLimit } from "./usage.ts";
 import type { Account } from "./registry.ts";
+import { find } from "./registry.ts";
+import { withMutationLock } from "./lock.ts";
 
 /**
  * Auth vars that compete with the injected token — scrubbed so subprocesses,
@@ -31,22 +33,21 @@ export interface LaunchResult {
  * resolves with claude's exit code.
  */
 export async function launch(acct: Account, args: string[]): Promise<LaunchResult> {
-  const token = await credstore.get(acct.service);
-  if (!token) {
-    process.stderr.write(
-      `No token found for ${acct.label}.\nRun: cca   (then choose Add or Refresh)\n`,
-    );
-    throw new Error(`no token for ${acct.slug}`);
-  }
-
-  let configDir = "";
-  try {
-    configDir = await build(acct);
-  } catch (err) {
-    process.stderr.write(
-      `warning: account isolation failed (${err}); launching unisolated\n`,
-    );
-  }
+  const prepared = await withMutationLock(acct.slug, async () => {
+    const current = await find(acct.slug);
+    if (!current) throw new Error(`unknown account: ${acct.slug}`);
+    const token = await credstore.get(current.service);
+    if (!token) {
+      process.stderr.write(`No token found for ${current.label}.\nRun: cca   (then choose Add or Refresh)\n`);
+      throw new Error(`no token for ${current.slug}`);
+    }
+    const configDir = await build(current);
+    return { account: current, token, configDir };
+  });
+  // The token is an immutable launch snapshot; release the mutation lock before
+  // spawning so multiple sessions for the same account can run concurrently.
+  acct = prepared.account;
+  const { token, configDir } = prepared;
 
   const near = await fiveHourNearLimit(acct.slug, 85, Date.now() / 1000);
   if (near.ok) {
@@ -76,17 +77,26 @@ export async function launch(acct: Account, args: string[]): Promise<LaunchResul
   });
 
   // Relay signals to the child so Ctrl-C/SIGTERM behave as expected.
-  const relay = (sig: NodeJS.Signals) => child.kill(sig);
-  process.on("SIGINT", relay);
-  process.on("SIGTERM", relay);
-  process.on("SIGHUP", relay);
+  const relayInt = () => { child.kill("SIGINT"); };
+  const relayTerm = () => { child.kill("SIGTERM"); };
+  const relayHup = () => { child.kill("SIGHUP"); };
+  process.on("SIGINT", relayInt);
+  process.on("SIGTERM", relayTerm);
+  if (process.platform !== "win32") process.on("SIGHUP", relayHup);
 
-  return await new Promise<LaunchResult>((resolve) => {
-    child.on("exit", (code, signal) => {
-      process.off("SIGINT", relay);
-      process.off("SIGTERM", relay);
-      process.off("SIGHUP", relay);
-      if (signal && code === null) {
+  return await new Promise<LaunchResult>((resolve, reject) => {
+    const cleanup = () => {
+      process.off("SIGINT", relayInt);
+      process.off("SIGTERM", relayTerm);
+      if (process.platform !== "win32") process.off("SIGHUP", relayHup);
+    };
+    child.once("error", (error) => {
+      cleanup();
+      reject(new Error(`could not start Claude (${bin}): ${error.message}`));
+    });
+    child.once("exit", (code, signal) => {
+      cleanup();
+      if (signal && code === null && process.platform !== "win32") {
         // Mirror the signal: die the same way our child did.
         process.kill(process.pid, signal);
       }
@@ -95,7 +105,7 @@ export async function launch(acct: Account, args: string[]): Promise<LaunchResul
   });
 }
 
-function buildEnv(token: string, acct: Account, configDir: string): NodeJS.ProcessEnv {
+export function buildEnv(token: string, acct: Account, configDir: string): NodeJS.ProcessEnv {
   const skip = new Set<string>([
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_ACCOUNTS_SLUG",
@@ -103,11 +113,11 @@ function buildEnv(token: string, acct: Account, configDir: string): NodeJS.Proce
     "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
     ...SCRUB_VARS,
   ]);
-  if (configDir) skip.add("CLAUDE_CONFIG_DIR");
+  skip.add("CLAUDE_CONFIG_DIR");
 
   const env: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (skip.has(k)) continue;
+    if (skip.has(process.platform === "win32" ? k.toUpperCase() : k)) continue;
     env[k] = v;
   }
   env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";

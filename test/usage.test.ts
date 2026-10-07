@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { summary, fingerprint, fiveHourNearLimit } from "../src/core/usage.ts";
 
-const DIR = "/tmp/cca-vitest-usage";
+const DIR = join(tmpdir(), `cca-vitest-usage-${process.pid}`);
 
 async function writeSnapshot(slug: string, data: unknown): Promise<void> {
   const dir = join(DIR, "usage");

@@ -2,24 +2,24 @@
 // auth scrubbed so it uses the browser flow), stores the resulting token in the
 // credential store, and appends to the registry. Supports headless add via
 // --token or CLAUDE_CODE_OAUTH_TOKEN when a TTY isn't available.
-import { spawn } from "node:child_process";
+import spawn from "cross-spawn";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   append,
   find,
-  load,
   serviceFor,
   slugify,
   validSlug,
   type Account,
-  type AccountOverrides,
 } from "../core/registry.ts";
 import * as credstore from "../core/credstore.ts";
+import { parseSettings, shellQuote } from "../core/settings.ts";
+import { withMutationLock } from "../core/lock.ts";
 import { clearUsage } from "./util.ts";
 import { resolveClaudeBin } from "../core/paths.ts";
-import { sync } from "../core/wrappers.ts";
+import { syncCurrent } from "../core/wrappers.ts";
 import { pressEnter, promptLine } from "../ui/select.ts";
 
 export interface AddOptions {
@@ -42,8 +42,8 @@ export async function add(opts: AddOptions = {}): Promise<void> {
 
   let name = opts.name;
   if (!name) name = await promptLine("Account display name");
-  if (!name || /[\t\n]/.test(name)) {
-    throw new Error("display name must be non-empty and free of tabs/newlines");
+  if (!name?.trim() || /[\x00-\x1f\x7f]/.test(name)) {
+    throw new Error("display name must be non-empty and free of control characters");
   }
 
   let slug = opts.slug;
@@ -59,6 +59,7 @@ export async function add(opts: AddOptions = {}): Promise<void> {
     throw new Error(`account ${slug} already exists — use: cca refresh ${slug}`);
   }
 
+  const settings = opts.settings !== undefined ? parseSettings(opts.settings) : undefined;
   const service = serviceFor(slug);
   let token = opts.token;
   if (!token) {
@@ -68,30 +69,28 @@ export async function add(opts: AddOptions = {}): Promise<void> {
   validateToken(token);
 
   if (interactive) process.stdout.write("\nStep 3/3 — storing the token\n");
-  await credstore.set(service, token);
   const acct: Account = { slug, label: name, service, createdAt: new Date().toISOString() };
-  if (opts.settings) {
-    let parsed: unknown;
+  if (settings) acct.overrides = { settings };
+  await withMutationLock(slug, async () => {
+    if (await find(slug)) throw new Error(`account ${slug} already exists — use: cca refresh ${slug}`);
+    const previous = await credstore.get(service);
+    await credstore.set(service, token);
     try {
-      parsed = JSON.parse(opts.settings);
-    } catch {
-      throw new Error("--settings must be valid JSON");
+      await append(acct);
+    } catch (error) {
+      if (previous) await credstore.set(service, previous);
+      else await credstore.del(service);
+      throw error;
     }
-    if (parsed && typeof parsed === "object") {
-      const overrides: AccountOverrides = {};
-      overrides.settings = parsed as Record<string, unknown>;
-      acct.overrides = overrides;
-    }
-  }
-  await append(acct);
-  await clearUsage(slug);
-  const others = (await load()).filter((x) => x.slug !== slug);
-  await sync([acct, ...others]);
+    await clearUsage(slug);
+  });
+  try { await syncCurrent(); }
+  catch (error) { console.error(`Account saved, but launchers could not be synced: ${error}. Run: cca sync`); }
 
   console.log(`\nDone. Launch this account with: claude-${slug}`);
 }
 
-async function runSetupToken(label: string): Promise<string> {
+export async function runSetupToken(label: string): Promise<string> {
   process.stdout.write(`\nStep 2/3 — sign in as "${label}"\n\n`);
   process.stdout.write("  A browser tab will open on claude.ai to create a one-year token.\n");
   process.stdout.write("  The token belongs to whichever account is signed in THERE, not here —\n");
@@ -143,13 +142,15 @@ async function runSetupToken(label: string): Promise<string> {
 async function spawnWithCapture(bin: string, logPath: string): Promise<boolean> {
   const env = scrubbedEnv();
   // BSD/macOS: script [-q] file cmd args...   util-linux: script [-q] -c "cmd" file
-  const variants: Array<{ cmd: string; args: string[]; capture: boolean }> = [
-    { cmd: "script", args: ["-q", logPath, bin, "setup-token"], capture: true },
-    { cmd: "script", args: ["-q", "-c", `${bin} setup-token`, logPath], capture: true },
-    { cmd: bin, args: ["setup-token"], capture: false },
-  ];
+  const variants: Array<{ cmd: string; args: string[]; capture: boolean }> =
+    process.platform === "win32"
+      ? [{ cmd: bin, args: ["setup-token"], capture: false }]
+      : process.platform === "darwin"
+        ? [{ cmd: "script", args: ["-q", logPath, bin, "setup-token"], capture: true },
+           { cmd: bin, args: ["setup-token"], capture: false }]
+        : [{ cmd: "script", args: ["-q", "-e", "-c", `${shellQuote(bin)} setup-token`, logPath], capture: true },
+           { cmd: bin, args: ["setup-token"], capture: false }];
 
-  let lastErr: Error | undefined;
   for (const v of variants) {
     try {
       const code = await new Promise<number>((resolve, reject) => {
@@ -157,15 +158,14 @@ async function spawnWithCapture(bin: string, logPath: string): Promise<boolean> 
         child.on("exit", (c) => resolve(c ?? 1));
         child.on("error", reject);
       });
-      if (code === 0) return v.capture;
-      lastErr = new Error(`setup-token exited ${code}`);
-      // A non-zero exit from `script` may mean the wrong flavor; try the next.
-      if (!v.capture) throw lastErr;
+      if (code !== 0) throw new Error(`setup-token exited ${code}; nothing was stored`);
+      return v.capture;
     } catch (err) {
-      lastErr = err as Error;
+      if (v.capture && (err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
     }
   }
-  throw lastErr ?? new Error("setup-token failed");
+  throw new Error("setup-token failed");
 }
 
 /** Drop ANSI/OSC escape sequences so wrapped TUI output can be read as text. */
@@ -253,7 +253,7 @@ function maskToken(t: string): string {
 
 export function validateToken(token: string): void {
   if (!token) throw new Error("no token supplied; nothing was stored");
-  if (!token.startsWith("sk-ant-oat")) {
+  if (!/^sk-ant-oat[A-Za-z0-9_-]{20,}$/.test(token)) {
     throw new Error(
       "that does not look like a Claude OAuth token (expected sk-ant-oat…); nothing was stored",
     );
@@ -272,7 +272,7 @@ export function scrubbedEnv(): NodeJS.ProcessEnv {
   ]);
   const env: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (skip.has(k)) continue;
+    if (skip.has(k.toUpperCase()) || k.toUpperCase() === "CLAUDE_CONFIG_DIR") continue;
     env[k] = v;
   }
   return env;

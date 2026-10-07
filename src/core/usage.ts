@@ -5,7 +5,7 @@ import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { usageDir } from "./paths.ts";
 
-interface Window {
+export interface Window {
   used_percentage?: number | null;
   resets_at?: number | null;
 }
@@ -22,7 +22,8 @@ async function load(slug: string): Promise<Snapshot | null> {
   try {
     const raw = await fs.readFile(join(usageDir(), `${slug}.json`), "utf8");
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return { ...parsed, rate_limits: sanitizeRateLimits(parsed.rate_limits) };
   } catch {
     return null;
   }
@@ -77,4 +78,20 @@ function fstr(n: number | null | undefined): string {
 }
 function istr(n: number | null | undefined): string {
   return n == null ? "" : String(n);
+}
+
+/** Ignore malformed provider/cache values rather than showing fabricated meters. */
+export function sanitizeRateLimits(value: unknown): Snapshot["rate_limits"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const result: NonNullable<Snapshot["rate_limits"]> = {};
+  for (const key of ["five_hour", "seven_day"] as const) {
+    const candidate = (value as Record<string, unknown>)[key];
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const raw = candidate as Record<string, unknown>;
+    const window: Window = {};
+    if (typeof raw.used_percentage === "number" && Number.isFinite(raw.used_percentage) && raw.used_percentage >= 0 && raw.used_percentage <= 100) window.used_percentage = raw.used_percentage;
+    if (typeof raw.resets_at === "number" && Number.isFinite(raw.resets_at) && raw.resets_at > 0) window.resets_at = raw.resets_at;
+    result[key] = window;
+  }
+  return result;
 }

@@ -40,8 +40,8 @@ disk and bills the **wrong plan** (a 403, then a silent fallback to whatever
 you last logged in as).
 
 `cca` fixes this properly. Each account gets its own `CLAUDE_CONFIG_DIR` that
-**shares** all of `~/.claude/*` (settings, plugins, skills, agents, memory,
-history) via symlinks, but writes a fresh `.claude.json` with `oauthAccount`
+**shares** reusable data under `~/.claude/*` (settings, plugins, skills, agents, memory,
+history) via symlinks, keeps credentials and runtime files private, and writes a fresh `.claude.json` with `oauthAccount`
 **stripped**. With no cached org, Claude falls back to the org encoded in the
 injected token → **correct billing, nothing reconfigured**.
 
@@ -60,7 +60,7 @@ straight into `~/.claude`, so every account inherits, live:
 | `settings.json` | One config to maintain — with per-account overrides when you want them ([Hybrid mode](#-per-account-settings-overrides-hybrid-mode)). |
 | MCP servers | Configured once, connected everywhere. |
 | `projects/`, `history.jsonl` | Memory and history stay whole — switching accounts doesn't fork your context. |
-| `agents/`, `tasks/`, `plans/`, … | Everything else in `~/.claude` is shared the same way — the rule is "share it all", not a curated list. |
+| `agents/`, `tasks/`, `plans/`, … | Reusable configuration and context are shared; credentials, identity backups, and runtime files stay private. |
 
 These are symlinks, not copies. Add a skill today and **all** accounts have it
 today — nothing to sync, nothing to duplicate, no drift between accounts.
@@ -79,7 +79,7 @@ account is the only thing `cca` isolates: `.claude.json`'s cached
 `tokens.json`), one `claude-<slug>` command per account, no re-auth on switch,
 no environment juggling.
 
-Zero runtime dependencies. Your existing setup, times N accounts, billed
+Self-contained published CLI bundle. Your existing setup, times N accounts, billed
 correctly.
 
 ## 📦 Install
@@ -89,7 +89,7 @@ correctly.
 ### Option A — `npx` (recommended: nothing to install, nothing to update)
 
 ```bash
-npx cc-accounts add
+npx --yes --package=cc-accounts cca add
 ```
 
 `npx` fetches the current release each time, so there is no update step and no
@@ -99,7 +99,7 @@ stale version to chase. This is the recommended way to run one-off commands
 > **If `npx` seems to run an old version**, its cache keys on the package
 > *name*, not the version. Pin it once to refresh:
 > ```bash
-> npx --yes cc-accounts@latest add
+> npx --yes --package=cc-accounts@latest cca add
 > ```
 
 ### Option B — global install (needed for the `claude-<slug>` launchers)
@@ -109,11 +109,11 @@ npm install -g cc-accounts
 cca add
 ```
 
-The per-account launchers (`claude-work`, `claude-personal`, …) are symlinks
-that point at the `cca` binary. `npx` installs into a temporary cache that npm
-may clean up, so those launchers only keep working if `cca` is on your PATH for
-good. **Run at least one global install if you want the `claude-<slug>`
-commands.** Everything else works fine under `npx` alone.
+Per-account launchers are durable scripts. They use the recorded manager binary
+when available, then discover `cca` / `cc-accounts` on PATH, then use an isolated,
+version-pinned `npx --package=cc-accounts@<version> cca` fallback. A global install
+provides offline launch without the fallback. Existing managed symlinks are
+migrated by `cca sync`; unrelated commands are preserved.
 
 ### Option C — from source
 
@@ -157,8 +157,8 @@ new build up on its next launch. The registry stores only
 
 The same holds for everything under `~/.claude` (plugins, skills, agents,
 settings, memory): each account's config dir symlinks to it, so an update there
-lands for all accounts at once. Only `.claude.json` is written per account, to
-strip `oauthAccount`.
+lands for all accounts at once. Each account has a stripped `.claude.json` and regenerated settings, with
+competing authentication and provider variables removed from settings `env`.
 
 > If several `claude` binaries are on your `PATH` (npm global, `~/.local/bin`,
 > Homebrew), `cca` takes the first one — the same one plain `claude` would run.
@@ -259,24 +259,24 @@ claude-work -p "..."   # any claude args pass through verbatim
 ## 🔧 How it works
 
 ```
-~/.claude-accounts/                      ← cca's own data (CLAUDE_ACCOUNTS_DIR)
+~/.config/claude-accounts/                      ← cca's own data (CLAUDE_ACCOUNTS_DIR)
 ├── accounts.json                        ← registry: {slug, label, service, overrides}  (NO tokens)
 ├── configs/<slug>/                      ← per-account CLAUDE_CONFIG_DIR
 │   ├── .claude.json                     ←   REAL file, oauthAccount STRIPPED  ← billing isolation
-│   ├── settings.json                    ←   symlink to base, OR merged file if overrides set
+│   ├── settings.json                    ←   regenerated base + per-account overrides
 │   ├── plugins/  skills/  agents/  ...  ←   symlinks to ~/.claude/*  (shared)
 │   └── (daemon*, *.lock, *.sock absent) ←   per-process state NOT shared
 ├── usage/<slug>.json                    ← cached rate_limits (for list/doctor)
 └── tokens.json                          ← Linux/Windows credstore (0600); macOS uses Keychain
 
-~/.local/bin/claude-work → cca binary    ← busybox symlink (dispatches on its own name)
+~/.local/bin/claude-work                ← durable script (.cmd on Windows)
 ```
 
 **Launch flow** (`claude-work` → `cca`):
 
 1. Read the account's OAuth token from **macOS Keychain** (or `tokens.json` on
    Linux/Windows).
-2. **Rebuild** `~/.claude-accounts/configs/work/`: refresh `~/.claude/*` symlinks,
+2. **Rebuild** `~/.config/claude-accounts/configs/work/`: refresh `~/.claude/*` symlinks,
    write a stripped `.claude.json`, write a merged `settings.json` if overrides.
 3. **Spawn `claude`** with `stdio: inherit`, scrubbing competing auth vars
    (`ANTHROPIC_API_KEY`, `_AUTH_TOKEN`, `_BASE_URL`, Bedrock/Vertex/Foundry flags)
@@ -305,9 +305,10 @@ cca doctor
 ```
 
 Audits each account: is the token present and correctly prefixed? Are any two
-accounts sharing one token or one usage fingerprint? (That's the classic symptom
-of a token generated while signed into the wrong account on claude.ai — both
-"accounts" silently bill the same subscription.)
+accounts sharing one token or matching cached usage? Identical tokens prove the
+same credential is configured; matching usage is only an advisory heuristic.
+Missing/invalid tokens, unsafe identity files, and missing/foreign launchers
+produce exit code 1. Duplicate warnings alone produce exit code 0.
 
 ```
 Claude accounts doctor
@@ -347,15 +348,16 @@ Claude install your launchers will exec if you have more than one.
 ## 🛠️ Development
 
 ```bash
-npm install          # dev deps only (typescript, tsup, vitest, tsx)
-npm test             # 28 unit tests: registry, isolation, settings, credstore, usage
+npm install          # development requires Node 20+; published CLI supports Node 18+
+npm test             # behavior, concurrency, rollback, and subprocess regressions
 npm run typecheck    # tsc --noEmit
-npm run build        # tsup → single bundled dist/cli.js (zero runtime deps)
+npm run build        # tsup → self-contained bundled dist/cli.js
 npm run dev -- list  # run from source via tsx
 ```
 
-The codebase is pure TypeScript with **zero runtime dependencies** — the
-published `dist/cli.js` is a single ~40KB self-contained ESM bundle.
+The codebase is TypeScript. `cross-spawn` and `proper-lockfile` are bundled into
+the published ESM CLI for Windows process launching and cross-process locking.
+`npm run verify` runs all required checks; version and publish hooks run it too.
 
 ### Project structure
 
@@ -371,10 +373,10 @@ src/
 │   ├── settings.ts       # deep-merge base settings + overrides
 │   ├── launcher.ts       # env scrub + token inject + spawn claude
 │   ├── usage.ts          # cached rate-limit summaries + fingerprints
-│   └── wrappers.ts       # claude-<slug> symlink create/prune
+│   └── wrappers.ts       # durable launcher create/prune
 ├── commands/             # list, add, refresh, remove, edit, launch, doctor, sync, statusline
 └── ui/select.ts          # zero-dep arrow-key picker (fzf/numbered fallbacks)
-test/                     # 28 unit tests
+test/                     # behavior and integration tests
 ```
 
 ## ❓ FAQ
@@ -510,3 +512,11 @@ Built on the excellent work of:
 ## 📄 License
 
 MIT © Tien Le
+
+## Reliability verification
+
+See [the Codex applicability audit](docs/PARITY-AUDIT.md) for the comparison
+against `codex-cli-switch` commit `020f0da` and the verification scope. Tests use
+temporary data and fake tokens; they do not authenticate or verify live billing.
+Explicit Claude arguments or project-local settings can intentionally change
+provider/authentication behavior and remain under the user's control.
