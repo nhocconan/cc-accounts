@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Filter nonexistent npm `node_modules/.bin` paths from session and setup-token
+  environments so npx launchers do not break Claude's Bash sandbox under
+  unwritable ancestor directories. Preserve existing tools and sandbox settings.
+- Add subprocess regression coverage and a Claude environment audit to CI and
+  release verification.
+
 ## [0.1.5] - 2026-10-07
 
 - Port applicable reliability fixes from codex-multi: durable launcher recovery,

@@ -3,6 +3,7 @@
 // credential store, and appends to the registry. Supports headless add via
 // --token or CLAUDE_CODE_OAUTH_TOKEN when a TTY isn't available.
 import spawn from "cross-spawn";
+import { sanitizeClaudePath } from "../core/claude-env.ts";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -275,5 +276,6 @@ export function scrubbedEnv(): NodeJS.ProcessEnv {
     if (skip.has(k.toUpperCase()) || k.toUpperCase() === "CLAUDE_CONFIG_DIR") continue;
     env[k] = v;
   }
+  sanitizeClaudePath(env);
   return env;
 }

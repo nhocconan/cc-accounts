@@ -60,3 +60,17 @@ node dist/cli.js --version   # smoke: the bundle runs
 ```
 
 If any step fails, fix it before pushing. Do not push known-broken code.
+
+## Anti-pattern rules
+
+1. **Never pass nonexistent npm bin directories to Claude.** `npm exec`/`npx`
+   inject ancestor `node_modules/.bin` paths even if they do not exist. Claude's
+   Bash sandbox can try to create mount points there and fail under unwritable
+   parents (`bwrap: Can't mkdir /opt/apps/node_modules: Permission denied`).
+   Both session and setup-token environment builders must call
+   `sanitizeClaudePath(env)` before returning. Preserve existing project bins,
+   unrelated PATH entries, the working directory, and sandbox settings.
+
+| Concern | Rule | Audit | Gate |
+|---|---|---|---|
+| Claude inherits nonexistent npm bins | §1 | `scripts/audit/claude-env.mjs` + `test/claude-env.test.ts` | `npm run verify`, CI |

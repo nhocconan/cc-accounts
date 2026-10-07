@@ -41,13 +41,14 @@
     "build": "tsup",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
+    "audit:claude-env": "node scripts/audit/claude-env.mjs --self-test",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "tsup",
     "prepublishOnly": "npm run verify",
     "release": "bash scripts/release.sh",
     "release:dry": "DRY=1 bash scripts/release.sh",
-    "verify": "npm run typecheck && npm test && npm run build && node dist/cli.js --version",
+    "verify": "npm run audit:claude-env && npm run typecheck && npm test && npm run build && node dist/cli.js --version",
     "version": "npm run verify && npm pack --dry-run"
   },
   "devDependencies": {

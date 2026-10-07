@@ -382,6 +382,22 @@ test/                     # behavior and integration tests
 ## ❓ FAQ
 
 <details>
+<summary><b>Plain <code>claude</code> works, but an npx account launcher fails with a bwrap node_modules error</b></summary>
+
+`npx` adds ancestor `node_modules/.bin` directories to `PATH`, including ones
+that do not exist. Claude's Bash sandbox can try to create mount points for
+them under a directory you cannot write, such as `/opt/apps/node_modules`.
+`cca` filters nonexistent npm bin paths before starting Claude or setup-token.
+Existing project tools, your working directory, and sandbox settings are preserved.
+
+After installing a version containing this fix, run `cca sync` and restart the
+account session. A global install avoids the npx fallback and works offline.
+There is no need to create root-owned directories or disable the sandbox to
+address this launcher bug. File-access permission denials are separate and still
+follow Claude's settings and project instructions.
+</details>
+
+<details>
 <summary><b>Do I need a separate Claude subscription for each account?</b></summary>
 
 No — you can use this with one subscription (e.g. to separate Work/Personal

@@ -2,6 +2,7 @@
 // own config dir. Spawns claude as a child with inherited stdio and relays
 // signals so Ctrl-C, etc. behave correctly.
 import spawn from "cross-spawn";
+import { sanitizeClaudePath } from "./claude-env.ts";
 import { resolveClaudeBin } from "./paths.ts";
 import * as credstore from "./credstore.ts";
 import { build } from "./isolation.ts";
@@ -125,6 +126,7 @@ export function buildEnv(token: string, acct: Account, configDir: string): NodeJ
   env.CLAUDE_ACCOUNTS_SLUG = acct.slug;
   env.CLAUDE_ACCOUNTS_LABEL = acct.label;
   if (configDir) env.CLAUDE_CONFIG_DIR = configDir;
+  sanitizeClaudePath(env);
   return env;
 }
 
