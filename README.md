@@ -86,21 +86,15 @@ correctly.
 
 **Requires:** Node.js 18+ and the `claude` CLI on your PATH.
 
-### Option A — `npx` (recommended: nothing to install, nothing to update)
+### Option A — `npx` (no global install required)
 
 ```bash
-npx --yes --package=cc-accounts cca add
+npx --yes --package=cc-accounts@latest cca add
 ```
 
-`npx` fetches the current release each time, so there is no update step and no
-stale version to chase. This is the recommended way to run one-off commands
-(`add`, `list`, `doctor`).
-
-> **If `npx` seems to run an old version**, its cache keys on the package
-> *name*, not the version. Pin it once to refresh:
-> ```bash
-> npx --yes --package=cc-accounts@latest cca add
-> ```
+Use `@latest` explicitly when you want the current release. This is the
+recommended way to run one-off commands (`add`, `list`, `doctor`). See
+[Updating](#updating) to refresh existing account launchers too.
 
 ### Option B — global install (needed for the `claude-<slug>` launchers)
 
@@ -137,13 +131,28 @@ npm install -g .        # makes `cca` available globally
 
 | Installed via | Update with |
 |---|---|
-| `npx` | **nothing to do** — each run fetches the current release. If it looks stale: `npx --yes cc-accounts@latest …` |
-| `npm install -g` | `npm update -g cc-accounts` (or `npm install -g cc-accounts@latest`) |
-| from source | `git pull && npm install && npm run build && npm install -g .` |
+| `npx` | `npx --yes --package=cc-accounts@latest cca sync`, then `npx --yes --package=cc-accounts@latest cca --version` |
+| `npm install -g` | `npm install -g cc-accounts@latest`, then `cca sync` and `cca --version` |
+| from source | In your checkout: `git pull --ff-only && npm ci && npm run build && npm install -g .`, then `cca sync` and `cca --version` |
+| pinned version (`@0.1.x`) | Replace the pinned version with `@latest` or the desired release in your install/npx command, then run `sync` using that version. |
 
 Updating never touches your accounts: tokens stay in the Keychain (or
 `tokens.json`) and the registry stays in `~/.config/claude-accounts`. After
-updating a global install, run `cca sync` to refresh the launchers.
+updating, run `sync` through the updated manager to refresh the launchers.
+This also applies to npx users: existing `claude-<slug>` launchers can retain
+a fallback pinned to the version that created them until you run `sync`.
+Restart any running Claude session to use the updated launcher behavior.
+
+If npx still reports an old version, request the release explicitly:
+
+```bash
+npx --yes --prefer-online --package=cc-accounts@0.1.7 cca --version
+npx --yes --prefer-online --package=cc-accounts@0.1.7 cca sync
+```
+
+If `cca --version` differs from the npx result, check which executable your
+shell resolves (`command -v cca` on Linux/macOS, `where.exe cca` on Windows).
+Update that installation too, or use the explicit npx commands above.
 
 ### Updating Claude Code itself
 
@@ -510,13 +519,16 @@ your config from backup or moved machines, `cca sync` fixes it.
 <details>
 <summary><b>How do I update <code>cca</code> itself?</b></summary>
 
-If you run it with `npx`, there is nothing to update — every invocation pulls
-the current release. Otherwise see [Updating](#updating):
+See [Updating](#updating) for global installs, npx, source checkouts, and pinned
+versions. For the two common cases:
 
 ```bash
-npm update -g cc-accounts                       # global install
-git pull && npm run build && npm install -g .   # from source
-cca sync                                        # refresh launchers afterwards
+npm install -g cc-accounts@latest               # global install
+cca sync
+cca --version
+
+npx --yes --package=cc-accounts@latest cca sync  # npx, including existing launchers
+npx --yes --package=cc-accounts@latest cca --version
 ```
 </details>
 

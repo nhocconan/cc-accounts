@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.7] - 2026-10-08
+
+- Document updates for global installs, npx, source checkouts, pinned versions,
+  and existing account launchers; include version checks and stale-path guidance.
+
 ## [0.1.6] - 2026-10-08
 
 - Stop forcing `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, which enables additional
