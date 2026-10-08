@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.1.6] - 2026-10-08
 
 - Stop forcing `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`, which enables additional
   Linux isolation even with sandbox settings disabled, blocks lockfile/worktree
